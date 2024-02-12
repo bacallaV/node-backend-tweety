@@ -1,91 +1,83 @@
-import crypto from 'crypto';
-import fs from 'fs';
-import express from 'express';
+const express = require('express');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+// ENV
+const dotenv = require('dotenv');
+dotenv.config();
+// My sequelize configuration
+const sequelizeConfig = require('./config');
+// Middlewares
+const { Auth } = require('./middlewares/auth.middleware');
+const { User } = require('./models');
 
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-
-const USERS_FILE = './users.json';
+// Environment variables
+const PORT = process.env.PORT ?? 3001;
 
 const app = express();
-
 app.use(express.json());
 
-// Crea el archivo json si no lo encuentra y le asigna un array vacio
-if (!fs.existsSync(USERS_FILE)) {
-    fs.writeFileSync(USERS_FILE, JSON.stringify([]));
-}
-
-app.post("/users", async (req, res) => {
+app.post("/api/users", async (req, res) => {
   const newUser = req.body;
   // Crypting password
   newUser.password = await bcrypt.hash(newUser.password, 10);
+  // Creating new user
+  const user = await User.create(newUser)
 
-  // Reading file
-  fs.readFile(USERS_FILE, (err, data) => {
-    if (err) return res.status(500).send("Error al leer el archivo");
+  // Handling response
+  if(user) return res.status(200).json({
+    message: 'User created successfully'
+  });
 
-    let users = JSON.parse(data.toString());
-    users.push({ id: crypto.randomUUID(), ...newUser });
-    // Writing data
-    fs.writeFile(USERS_FILE, JSON.stringify(users, null, 2), (err) => {
-      if (err) return res.status(500).send("Error al guardar el usuario");
-
-      return res.status(200).send("Usuario creado exitosamente");
-    });
+  res.status(500).json({
+    message: 'Error while creating user'
   });
 });
 
-app.post("/login", async(req, res) => {
+app.post("/api/users/login", async(req, res) => {
   const user = req.body;
+  // Finding user by email
+  const existingUser = await User.findOne({
+    where: {
+      email: user.email
+    }
+  });
+  
+  // If user email does not exist
+  if (!existingUser) return res.status(404).json({
+    message: 'Invalid credentials'
+  });
 
-  // Reading file
-  await fs.readFile(USERS_FILE, async(err, data) => {
-    if (err) return res.status(500).send("Error al leer el archivo");
+  // Checking password coincidence
+  const isValid = await bcrypt.compare(user.password, existingUser.password);
+  if(!isValid) return res.status(404).json({
+    message: 'Invalid credentials'
+  });
 
-    // Getting user from db json file
-    let users = JSON.parse(data.toString());
-
-    const existingUser = users.find(dbUser => dbUser.username === user.username);
-    if (!existingUser) return res.status(404).send("Credenciales inválidas");
-
-    // Checking password coincidence 
-    const isValid = await bcrypt.compare(user.password, existingUser.password);
-    if(!isValid) return res.status(404).send('Credenciales inválidas');
-
-    return res.status(200).json({
-      token: jwt.sign(
-        { user: user.id },
-        'my-key',
-        { expiresIn: '1h' },
-      ),
-    });
+  // Returning JWT if everything is OK
+  return res.status(200).json({
+    token: jwt.sign(
+      {
+        user: user.id
+      },
+      'my-key',
+      {
+        expiresIn: '1h'
+      },
+    ),
   });
 });
 
-app.get("/posts", Auth, async (req, res) => {
-  return res.status(200).json([]);
+app.get("/api/users", Auth, async (req, res) => {
+  const users = await User.findAll();
+
+  return res.status(200).json({
+    data: users,
+  });
 });
 
-/* Middlewares */
-function Auth (req, res, next) {
-	const token = req.headers.authorization?.split(' ')[1];
-	if(!token) return res.status(401).json('Sin autorización');
 
-	const jwtPayload = jwt.verify(token, 'my-key');
-
-	if(!jwtPayload) return res.status(403).json('Token inválido');
-
-	next();
-}
-
-/* Using middleware */
-app.get('/posts', Auth, (req, res) => {
-	// Some code here...
-  return res.status(200).json([]);
-});
-
-const PORT = 3001;
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
-});
+sequelizeConfig.sync({ alter: false }).then(() => {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running in port: ${PORT}`)
+  })
+})

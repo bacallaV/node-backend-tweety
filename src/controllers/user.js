@@ -6,6 +6,16 @@ const { User } = require('../models');
 const UserController = {
   create: async (req, res) => {
     const newUser = req.body;
+
+    const existingUser = await User.findOne({
+      where: {
+        email: newUser.email,
+      }
+    });
+    if(existingUser) return res.status(400).json({
+      message: 'Email already used'
+    });
+
     // Crypting password
     newUser.password = await bcrypt.hash(newUser.password, 10);
     // Creating new user

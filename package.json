@@ -8,7 +8,8 @@
     "main": "index.js",
     "private": true,
     "scripts": {
-        "dev": "nodemon src/index.js"
+        "dev": "nodemon src/index.js",
+        "setup": "docker compose up -d"
     },
     "keywords": [],
     "author": "Osvaldo de Luna Herrera",
